@@ -64,6 +64,20 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     db.refresh(proj)
     return proj
 
+@app.put("/api/projects/{project_id}", response_model=ProjectRead)
+def replace_project(project_id: int, payload: ProjectCreate, db: Session = Depends(get_db)):
+    proj = db.get(ProjectDB, project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    owner = db.get(UserDB, payload.owner_id)
+    if not owner:
+        raise HTTPException(status_code=404, detail="Owner not found")
+    for field, value in payload.model_dump().items():
+        setattr(proj, field, value)
+    commit_or_rollback(db, "Project update failed")
+    db.refresh(proj)
+    return proj
+
 @app.get("/api/projects", response_model=list[ProjectRead])
 def list_projects(db: Session = Depends(get_db)):
     stmt = select(ProjectDB).order_by(ProjectDB.id)
@@ -129,6 +143,18 @@ def add_user(payload: UserCreate, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="User already exists")
+    return user
+
+# ---------- PUT (Full Replace) ----------
+@app.put("/api/users/{user_id}", response_model=UserRead)
+def replace_user(user_id: int, payload: UserCreate, db: Session = Depends(get_db)):
+    user = db.get(UserDB, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    for field, value in payload.model_dump().items():
+        setattr(user, field, value)
+    commit_or_rollback(db, "User update failed")
+    db.refresh(user)
     return user
 
 # DELETE a user (triggers ORM cascade -> deletes their projects too)
