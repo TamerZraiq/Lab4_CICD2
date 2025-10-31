@@ -78,6 +78,18 @@ def replace_project(project_id: int, payload: ProjectCreate, db: Session = Depen
     db.refresh(proj)
     return proj
 
+@app.patch("/api/projects/{project_id}", response_model=ProjectRead)
+def patch_project(project_id: int, payload: dict, db: Session = Depends(get_db)):
+    proj = db.get(ProjectDB, project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    for field, value in payload.items():
+        if hasattr(proj, field):
+            setattr(proj, field, value)
+    commit_or_rollback(db, "Project partial update failed")
+    db.refresh(proj)
+    return proj
+
 @app.get("/api/projects", response_model=list[ProjectRead])
 def list_projects(db: Session = Depends(get_db)):
     stmt = select(ProjectDB).order_by(ProjectDB.id)
@@ -154,6 +166,19 @@ def replace_user(user_id: int, payload: UserCreate, db: Session = Depends(get_db
     for field, value in payload.model_dump().items():
         setattr(user, field, value)
     commit_or_rollback(db, "User update failed")
+    db.refresh(user)
+    return user
+
+# ---------- PATCH (Partial Update) ----------
+@app.patch("/api/users/{user_id}", response_model=UserRead)
+def patch_user(user_id: int, payload: dict, db: Session = Depends(get_db)):
+    user = db.get(UserDB, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    for field, value in payload.items():
+        if hasattr(user, field):
+            setattr(user, field, value)
+    commit_or_rollback(db, "User partial update failed")
     db.refresh(user)
     return user
 
