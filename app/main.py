@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Response
+from fastapi import FastAPI, Depends, HTTPException, status, Response, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -10,7 +10,8 @@ from .schemas import (
     CourseCreate, CourseRead,
     ProjectCreate, ProjectRead,
     ProjectReadWithOwner, ProjectCreateForUser
- )
+)
+
 app = FastAPI()
 Base.metadata.create_all(bind=engine)
 
@@ -27,13 +28,13 @@ def commit_or_rollback(db: Session, error_msg: str):
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail=error_msg)
-    
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-#Courses
-@app.post("/api/courses", response_model=CourseRead, status_code=201, summary="You could adddetails")
+# ---------- COURSES ----------
+@app.post("/api/courses", response_model=CourseRead, status_code=201)
 def create_course(course: CourseCreate, db: Session = Depends(get_db)):
     db_course = CourseDB(**course.model_dump())
     db.add(db_course)
@@ -46,19 +47,17 @@ def list_courses(limit: int = 10, offset: int = 0, db: Session = Depends(get_db)
     stmt = select(CourseDB).order_by(CourseDB.id).limit(limit).offset(offset)
     return db.execute(stmt).scalars().all()
 
-#Projects
+# ---------- PROJECTS ----------
 @app.post("/api/projects", response_model=ProjectRead, status_code=201)
 def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     user = db.get(UserDB, project.owner_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
     proj = ProjectDB(
-    name=project.name,
-    description=project.description,
-    owner_id=project.owner_id,
+        name=project.name,
+        description=project.description,
+        owner_id=project.owner_id,
     )
-
     db.add(proj)
     commit_or_rollback(db, "Project creation failed")
     db.refresh(proj)
@@ -79,7 +78,7 @@ def replace_project(project_id: int, payload: ProjectCreate, db: Session = Depen
     return proj
 
 @app.patch("/api/projects/{project_id}", response_model=ProjectRead)
-def patch_project(project_id: int, payload: dict, db: Session = Depends(get_db)):
+def patch_project(project_id: int, payload: dict = Body(...), db: Session = Depends(get_db)):
     proj = db.get(ProjectDB, project_id)
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -97,47 +96,18 @@ def list_projects(db: Session = Depends(get_db)):
 
 @app.get("/api/projects/{project_id}", response_model=ProjectReadWithOwner)
 def get_project_with_owner(project_id: int, db: Session = Depends(get_db)):
-    stmt = select(ProjectDB).where(ProjectDB.id ==
-    project_id).options(selectinload(ProjectDB.owner))
+    stmt = select(ProjectDB).where(ProjectDB.id == project_id).options(selectinload(ProjectDB.owner))
     proj = db.execute(stmt).scalar_one_or_none()
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
     return proj
 
-#Nested Routes
-@app.get("/api/users/{user_id}/projects", response_model=list[ProjectRead])
-def get_user_projects(user_id: int, db: Session = Depends(get_db)):
-    stmt = select(ProjectDB).where(ProjectDB.owner_id == user_id)
-    #space it out for debugging
-    result = db.execute(stmt)
-    rows = result.scalars().all()
-    return rows
-
-#return db.execute(stmt).scalars().all()
-@app.post("/api/users/{user_id}/projects", response_model=ProjectRead, status_code=201)
-def create_user_project(user_id: int, project: ProjectCreateForUser, db: Session = Depends(get_db)):
-    user = db.get(UserDB, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    proj = ProjectDB(
-    name=project.name,
-    description=project.description, # <-- set it
-    owner_id=user_id
-    )
-    db.add(proj)
-    commit_or_rollback(db, "Project creation failed")
-    db.refresh(proj)
-    return proj
-
+# ---------- USERS ----------
 @app.get("/api/users", response_model=list[UserRead])
 def list_users(db: Session = Depends(get_db)):
     stmt = select(UserDB).order_by(UserDB.id)
-    #Useful for debugging
-    result = db.execute(stmt)
-    users = result.scalars().all()
-    return users
+    return db.execute(stmt).scalars().all()
 
-#return list(db.execute(stmt).scalars())
 @app.get("/api/users/{user_id}", response_model=UserRead)
 def get_user(user_id: int, db: Session = Depends(get_db)):
     user = db.get(UserDB, user_id)
@@ -157,7 +127,6 @@ def add_user(payload: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="User already exists")
     return user
 
-# ---------- PUT (Full Replace) ----------
 @app.put("/api/users/{user_id}", response_model=UserRead)
 def replace_user(user_id: int, payload: UserCreate, db: Session = Depends(get_db)):
     user = db.get(UserDB, user_id)
@@ -169,9 +138,8 @@ def replace_user(user_id: int, payload: UserCreate, db: Session = Depends(get_db
     db.refresh(user)
     return user
 
-# ---------- PATCH (Partial Update) ----------
 @app.patch("/api/users/{user_id}", response_model=UserRead)
-def patch_user(user_id: int, payload: dict, db: Session = Depends(get_db)):
+def patch_user(user_id: int, payload: dict = Body(...), db: Session = Depends(get_db)):
     user = db.get(UserDB, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -182,12 +150,11 @@ def patch_user(user_id: int, payload: dict, db: Session = Depends(get_db)):
     db.refresh(user)
     return user
 
-# DELETE a user (triggers ORM cascade -> deletes their projects too)
 @app.delete("/api/users/{user_id}", status_code=204)
 def delete_user(user_id: int, db: Session = Depends(get_db)) -> Response:
     user = db.get(UserDB, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    db.delete(user) # <-- triggers cascade="all, delete-orphan" on projects
+    db.delete(user)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

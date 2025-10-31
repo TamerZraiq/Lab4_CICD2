@@ -39,19 +39,17 @@ class UserReadWithProjects(UserRead):
     projects: List[ProjectRead] = []
 
 # ---------- Projects ----------
-# Flat route: POST /api/projects (owner_id in body)
 class ProjectCreate(BaseModel):
     name: ProjectNameStr
     description: Optional[DescStr] = None
     owner_id: int
 
-# Nested route: POST /api/users/{user_id}/projects (owner implied by path)
 class ProjectCreateForUser(BaseModel):
     name: ProjectNameStr
     description: Optional[DescStr] = None
 
 class ProjectReadWithOwner(ProjectRead):
-    owner: Optional["UserRead"]    = None # use selectinload(ProjectDB.owner) when querying
+    owner: Optional["UserRead"] = None
 
 # ---------- Courses ----------
 class CourseCreate(BaseModel):
